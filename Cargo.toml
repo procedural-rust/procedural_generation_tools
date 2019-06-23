@@ -1,0 +1,10 @@
+[package]
+name = "procedural_generation"
+version = "0.1.0"
+authors = ["esullivan"]
+edition = "2018"
+
+[dependencies]
+
+rand = "0.3.14"
+regex = "1"

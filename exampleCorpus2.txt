@@ -1,0 +1,10 @@
+This is a test
+about lines and sentences.
+This line wraps
+around.
+You took a test?
+You don't need a test.
+I want a pear.
+You need a break.
+I need a break.
+I don't want a test!
