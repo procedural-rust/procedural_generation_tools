@@ -2,11 +2,7 @@
 //Date Created: 6/15/2019
 //Purpose To create a context free grammer (CFG)
 //Notes:
-//Ideas: The constructors do not test that every variable has a rule or that the
-//          proabilites are proper and add up to the correct amount.
-//          Should checks be impelemented?
-//       The "init_from_file()" function assumes the file is in the correct format.
-//          Should checks be impelemented?
+//Ideas:
 
 use std::collections::{HashSet, HashMap};
 use std::hash::Hash;
@@ -14,18 +10,74 @@ use std::fs;
 use std::str;
 use rand::Rng;
 
+const FLOAT_ERROR_TOLERANCE: f64 = 0.001;
+
+////////////////////
+//Custom Error handling code
+////////////////////
+
+#[derive(Debug)]
+pub enum CFGError {
+    Io(io::Error),
+    ParseFloat(num::ParseFloatError),
+    Syntax(String),
+}
+
+use std::fmt;
+use std::error::Error;
+
+impl fmt::Display for CFGError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            CFGError::Io(ref err) => err.fmt(f),
+            CFGError::ParseFloat(ref err) => err.fmt(f),
+            CFGError::Syntax(ref err_string) => write!(f,"{}",err_string),
+        }
+    }
+}
+
+impl Error for CFGError {
+    fn cause(&self) -> Option<&Error> {
+        match *self {
+            CFGError::Io(ref err) => Some(err),
+            CFGError::ParseFloat(ref err) => Some(err),
+            CFGError::Syntax(ref _err_string)  => None,
+        }
+    }
+}
+
+use std::io;
+use std::num;
+
+// need to turn errors into the custum type, used by the ? operator to convert errors.
+impl From<io::Error> for CFGError {
+    fn from(err: io::Error) -> CFGError {
+        CFGError::Io(err)
+    }
+}
+
+impl From<num::ParseFloatError> for CFGError {
+    fn from(err: num::ParseFloatError) -> CFGError {
+        CFGError::ParseFloat(err)
+    }
+}
+
+////////////////////
+//CFG code
+////////////////////
+
 pub struct ContextFreeGrammar<T: Eq + Hash + Clone> {
     variables: HashSet<T>,
     terminals: HashSet<T>,
-	rules: HashMap<T,Vec<(Vec<T>, f32)>>,
+	rules: HashMap<T,Vec<(Vec<T>, f64)>>,
 	start_variable: T,
 }
 
 impl ContextFreeGrammar<String> {
 
-    //init_from_file
+    //data_from_file
     //Purpose:
-    //    Creates a CFG from a file.
+    //    Creates the data needed to construct a CFG from a file.
     //Pre-conditions:
     //    file is in the correct format.
     //Note:
@@ -40,12 +92,17 @@ impl ContextFreeGrammar<String> {
     //      Each line contains, in order, the variable, the probability of yielding the following rule, and the sequence of
     //      variables and terminals that replace the given variable from the rule.
     //      (Every variable must have at least one rule where that transform it, the yield may be empty.)
-    pub fn init_from_file(filename: String) -> ContextFreeGrammar<String> {
+    pub fn data_from_file(filename: String) -> Result<(HashSet<String>, HashSet<String>, HashMap<String,Vec<(Vec<String>, f64)>>, String), CFGError> {
         // Open file.
-        let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
+        let contents = fs::read_to_string(filename)?;
 
         // Break file into lines.
         let lines: Vec<&str> = contents.lines().collect();
+
+        //A seperate line is needed for variables, terminals, the starting variable, and 
+        if lines.len() < 4 {
+            return Err(CFGError::Syntax("A CFG file requires at least four lines.".to_string()));
+        }
 
         // get variables
         let mut variables = HashSet::new();
@@ -65,11 +122,14 @@ impl ContextFreeGrammar<String> {
         let start_variable = lines[2].to_string();
 
         //get rules
-        let mut rules: HashMap<String,Vec<(Vec<String>, f32)>> = HashMap::new();
+        let mut rules: HashMap<String,Vec<(Vec<String>, f64)>> = HashMap::new();
         for i in 3..lines.len() {
             let rule_string = lines[i].split_whitespace().collect::<Vec<&str>>();
+            if rule_string.len() < 2 {
+                return Err(CFGError::Syntax("A rule requires at least two parts.".to_string()));
+            }
             let current_variable = rule_string[0].to_string();
-            let probability = rule_string[1].parse::<f32>().unwrap();
+            let probability = rule_string[1].parse::<f64>()?;
             //The remaining part of the line is the yield
             let the_yield: Vec<String> = rule_string[2..rule_string.len()].iter().cloned().map(|s| s.to_string()).collect();
             match rules.remove_entry(&current_variable) {
@@ -86,7 +146,7 @@ impl ContextFreeGrammar<String> {
             }
         }
 
-        ContextFreeGrammar{ variables, terminals, rules, start_variable, }
+        Ok((variables, terminals, rules, start_variable,))
     }
 
 }
@@ -99,12 +159,66 @@ impl <T: Eq + Hash + Clone> ContextFreeGrammar<T> {
     //Pre-conditions:
     //    variables is non-empty, rules as a key for every variable.
     pub fn init(
-        variables: HashSet<T>,
-        terminals: HashSet<T>,
-        rules: HashMap<T,Vec<(Vec<T>, f32)>>,
-        start_variable: T,
-    ) -> ContextFreeGrammar<T> {
-        ContextFreeGrammar{ variables, terminals, rules, start_variable, }
+        (variables, terminals, rules, start_variable): (HashSet<T>, HashSet<T>, HashMap<T,Vec<(Vec<T>, f64)>>, T)
+    ) -> Result<ContextFreeGrammar<T>, CFGError> {
+
+        //There must be at least one variable
+        if variables.len() == 0 {
+            return Err(CFGError::Syntax("The set of variables must be non-empty.".to_string()));
+        }
+
+        //There must be at least one terminal
+        if terminals.len() == 0 {
+            return Err(CFGError::Syntax("The set of terminals must be non-empty.".to_string()));
+        }
+
+        let intersection: HashSet<_> = variables.intersection(&terminals).collect();
+        if intersection.len() != 0 {
+            return Err(CFGError::Syntax("Symbols may belong to variables or terminals, but not both.".to_string()));
+        }
+
+        //start_variable must be a variable
+        if !variables.contains(&start_variable) {
+            return Err(CFGError::Syntax("The start variable must belong to the set of variables.".to_string()));
+        }
+
+        //check that every variable in variables has at least one rule.
+        for variable in &variables {
+            if !rules.contains_key(&variable) {
+                return Err(CFGError::Syntax("Rules must contain a rule for every variable.".to_string()));
+            }
+        }
+
+        //Every transition in Transitions must be a valid (state,letter) pair.
+        for (variable, yields) in &rules {
+            let mut total_prob = 0.0;
+            //check that the variable given is in the set of variables.
+            if !variables.contains(&variable) {
+                return Err(CFGError::Syntax("Rules must be derived from the set variables.".to_string()));
+            } else {
+                for (sequence, prob) in yields {
+                    //check that probabilities are valid
+                    if (prob < &0.0) || (prob > &1.0) {
+                        return Err(CFGError::Syntax("Probabilities must be valid (between 0 and 1 inclusive).".to_string()));
+                    }
+                    total_prob += prob;
+
+                    //check that the yields contain only variables and terminals.
+                    for symbol in sequence {
+                        if !variables.contains(&symbol) && !terminals.contains(&symbol) {
+                            return Err(CFGError::Syntax("Yields must contain only variables and terminals.".to_string()));
+                        }
+                    }
+                }
+
+                //testing of equality of floats is tricky, so instead we just check that they are 'close enough'.
+                if (1.0 - total_prob).abs() > FLOAT_ERROR_TOLERANCE {
+                    return Err(CFGError::Syntax("Outgoing probabilites of rules for a given variable must add to 1.".to_string()));
+                }
+            }
+        }
+
+        Ok(ContextFreeGrammar{ variables, terminals, rules, start_variable, })
     }
 
     //getters
@@ -127,7 +241,7 @@ impl <T: Eq + Hash + Clone> ContextFreeGrammar<T> {
     //    Note that the output of this function will change after each call.
     //Pre-conditions:
     //    current_variable must be a valid variable.
-    pub fn get_yield(&self, current_variable: &T) -> Vec<T> {
+    fn get_yield(&self, current_variable: &T) -> Vec<T> {
         let mut threshold = rand::thread_rng().gen_range(0.0, 1.0);
         let possible_yields = self.rules.get(&current_variable).unwrap();
         for (my_yield,probability) in possible_yields {
@@ -192,4 +306,99 @@ impl <T: Eq + Hash + Clone> ContextFreeGrammar<T> {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cfg_file_errors() {
+
+        //Attempted to read a non-existant file
+        assert!(ContextFreeGrammar::data_from_file("non_existant_file".to_string()).is_err());
+
+        //File with insufficent information to do anything.
+        assert!(ContextFreeGrammar::data_from_file("..\\test_files\\test_CFG_1".to_string()).is_err());
+
+        //A transition line a has a insufficent number of arguments (requires three, a state, a letter, a state, and a probability)
+        assert!(ContextFreeGrammar::data_from_file("..\\test_files\\test_CFG_2".to_string()).is_err());
+
+        //A transition line has a non-float vaule for the probability of a rule.
+        assert!(ContextFreeGrammar::data_from_file("..\\test_files\\test_CFG_3".to_string()).is_err());
+    }
+
+    #[test]
+    fn cfg_init_errors() {
+
+        //setup
+        let s = -1;
+        let x = -2;
+        let l = -3;
+        let r = -4;
+
+        let variables: HashSet<isize> = [s].iter().cloned().collect();
+        let terminals_1: HashSet<isize> = [l,r].iter().cloned().collect();
+        let terminals_2: HashSet<isize> = [s,l,r].iter().cloned().collect();
+        let rules_1: HashMap<isize, Vec<(Vec<isize>, f64)>> =
+            [(s, vec![(vec![s,s],0.2), (vec![l,s,r],0.5), (vec![],0.3)])].iter().cloned().collect();
+        let rules_2: HashMap<isize, Vec<(Vec<isize>, f64)>> =
+            [(s, vec![(vec![s,s],0.2), (vec![l,s,r],0.5), (vec![],0.3)]), (x, vec![(vec![l,r],1.0)])].iter().cloned().collect();
+        let rules_3: HashMap<isize, Vec<(Vec<isize>, f64)>> =
+            [(s, vec![(vec![s,s],-0.2), (vec![l,s,r],0.5), (vec![],0.3)])].iter().cloned().collect();
+        let rules_4: HashMap<isize, Vec<(Vec<isize>, f64)>> =
+            [(s, vec![(vec![s,s],0.3), (vec![l,s,r],0.5), (vec![],0.3)])].iter().cloned().collect();
+        let rules_5: HashMap<isize, Vec<(Vec<isize>, f64)>> =
+            [(s, vec![(vec![s,s],0.3), (vec![l,x,r],0.5), (vec![],0.3)])].iter().cloned().collect();
+
+        //Attempted init with no variables (must have at least one variable)
+        assert!(ContextFreeGrammar::init((HashSet::new(),terminals_1.clone(),rules_1.clone(),s)).is_err());
+
+        //Attempted init with no terminals (must have at least one terminal)
+        assert!(ContextFreeGrammar::init((variables.clone(),HashSet::new(),rules_1.clone(),s)).is_err());
+
+        //Attempted init with overlaping variables and terminals (no symbol may be both a variable and terminal)
+        assert!(ContextFreeGrammar::init((variables.clone(),terminals_2.clone(),rules_1.clone(),s)).is_err());
+
+        //Attempted init with a terminal as the start variable (start variable must be a variable)
+        assert!(ContextFreeGrammar::init((variables.clone(),terminals_1.clone(),rules_1.clone(),l)).is_err());
+
+        //Attempted init with rules not containing all variables
+        assert!(ContextFreeGrammar::init((variables.clone(),terminals_1.clone(),HashMap::new(),s)).is_err());
+
+        //Attempted init with rules containing extra variables
+        assert!(ContextFreeGrammar::init((variables.clone(),terminals_1.clone(),rules_2.clone(),s)).is_err());
+
+        //Attempted init with a rule with invalid probability
+        assert!(ContextFreeGrammar::init((variables.clone(),terminals_1.clone(),rules_3.clone(),s)).is_err());
+
+        //Attempted init with a variable whose rules' probabilities add to more than 1.
+        assert!(ContextFreeGrammar::init((variables.clone(),terminals_1.clone(),rules_4.clone(),s)).is_err());
+
+        //Attempted init with a yield that contains a non-terminal non-variable symbol.
+        assert!(ContextFreeGrammar::init((variables.clone(),terminals_1.clone(),rules_5.clone(),s)).is_err());
+    }
+
+    #[test]
+    fn cfg_getters() {
+
+        //setup
+        let s = -1;
+        let l = -2;
+        let r = -3;
+
+        let variables: HashSet<isize> = [s].iter().cloned().collect();
+        let terminals: HashSet<isize> = [l,r].iter().cloned().collect();
+        let rules: HashMap<isize, Vec<(Vec<isize>, f64)>> =
+            [(s, vec![(vec![s,s],0.2), (vec![l,s,r],0.5), (vec![],0.3)])].iter().cloned().collect();
+
+        let test_cfg = ContextFreeGrammar::init((variables.clone(),terminals.clone(),rules,s)).unwrap();
+
+        assert_eq!(test_cfg.get_variables(),variables);
+
+        assert_eq!(test_cfg.get_terminals(),terminals);
+
+        assert_eq!(test_cfg.get_start_variable(),s);
+    }
+
 }

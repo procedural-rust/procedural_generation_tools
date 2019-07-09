@@ -11,6 +11,12 @@ use std::fs;
 use std::str;
 use regex::Regex;
 
+const FLOAT_ERROR_TOLERANCE: f64 = 0.001;
+
+////////////////////
+//n-grams code
+////////////////////
+
 //Token
 //Purpose:
 //  Allows the n-gram algoirthm to indentify start and end markers
@@ -65,7 +71,6 @@ impl <T: Eq + Hash + Clone> NGramModel<T> {
         let mut alphabet: HashSet<T> = HashSet::new();
         let mut start_state: Vec<Token<T>> = Vec::new();
         let mut accepting_states: HashSet<Vec<Token<T>>> = HashSet::new();
-        let mut transitions: HashMap<(Vec<Token<T>>,T),(Vec<Token<T>>,f64)> = HashMap::new();
 
         //Set start state to be n-1 copies of the start token.
         for _i in 0..(n-1) {
@@ -102,6 +107,7 @@ impl <T: Eq + Hash + Clone> NGramModel<T> {
             }
         }
 
+        let mut transitions: HashMap<(Vec<Token<T>>,T),(Vec<Token<T>>,f64)> = HashMap::new();
         for (ngram, count) in &ngrams {
             let mut before = Vec::new();
             let mut after = Vec::new();
@@ -126,7 +132,7 @@ impl <T: Eq + Hash + Clone> NGramModel<T> {
             }
         }
 
-        let model = AbstractProbabilisticFiniteStateAutomata::init(states,alphabet,transitions,start_state,accepting_states);
+        let model = AbstractProbabilisticFiniteStateAutomata::unsafe_init(states,alphabet,transitions,start_state,accepting_states);
         NGramModel{ corpus: corpus.clone(), n: n, model: model, ngram_counts: ngrams, n1gram_counts: n1grams }
     }
 
@@ -167,7 +173,7 @@ impl <T: Eq + Hash + Clone> NGramModel<T> {
         for i in 0..(token_sequence.len()-self.n + 1) {
             let ngram = &token_sequence[i..(i+self.n)];
             let n1gram = &token_sequence[i..(i+self.n-1)];
-            let mut ngram_count = 0;
+            let ngram_count;
             match self.ngram_counts.get(ngram) {
                 Some(count) => {
                     ngram_count = *count;
@@ -267,4 +273,32 @@ pub fn open_as_words(filename: String) -> Vec<Vec<char>> {
     }
 
     return corpus;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn n_gram_generate() {
+
+        let my_corpus = vec![vec![1,2,3,4,5],vec![5,4,3,2,1]];
+        let number_1gram = NGramModel::init(&my_corpus,1);
+        let number_2gram = NGramModel::init(&my_corpus,2);
+        let number_3gram = NGramModel::init(&my_corpus,3);
+
+        assert!( (number_1gram.probability(vec![],0.0,0) - (1.0/6.0)).abs() < FLOAT_ERROR_TOLERANCE );
+        assert!( (number_1gram.probability(vec![1],0.0,0) - (1.0/36.0)).abs() < FLOAT_ERROR_TOLERANCE );
+        assert!( (number_1gram.probability(vec![7],0.0,0) - 0.0).abs() < FLOAT_ERROR_TOLERANCE );
+
+        assert!( (number_2gram.probability(vec![1],0.0,0) - 0.25).abs() < FLOAT_ERROR_TOLERANCE );
+        assert!( (number_2gram.probability(vec![1,2,1],0.0,0) - 0.0625).abs() < FLOAT_ERROR_TOLERANCE );
+        assert!( (number_2gram.probability(vec![1,2,3,4,5],0.0,0) - 0.015625).abs() < FLOAT_ERROR_TOLERANCE );
+
+        assert!( (number_3gram.probability(vec![1,2,3,4,5],0.0,0) - 0.5).abs() < FLOAT_ERROR_TOLERANCE );
+        assert!( (number_3gram.probability(vec![5,4,3,2,1],0.0,0) - 0.5).abs() < FLOAT_ERROR_TOLERANCE );
+        assert!( (number_3gram.probability(vec![1,2,3,2,1],0.0,0) - 0.0).abs() < FLOAT_ERROR_TOLERANCE );
+
+    }
+
 }

@@ -11,7 +11,6 @@ mod pfsa;
 use pfsa::ProbabilisticFiniteStateAutomata;
 
 mod abstractpfsa;
-use abstractpfsa::AbstractProbabilisticFiniteStateAutomata;
 
 mod cfg;
 use cfg::ContextFreeGrammar;
@@ -21,6 +20,9 @@ use ngrams::NGramModel;
 
 mod hmm;
 use hmm::HiddenMarkovModel;
+
+mod mm;
+use mm::MarkovModel;
 
 fn main() {
 
@@ -33,6 +35,12 @@ fn main() {
     hmm_example();
 }
 
+
+//vec_to_string
+//Purpose:
+//      Given a vector of string literals, returns a vector of strings.
+//Pre-conditions:
+//      None
 fn vec_to_string(vec_of_str: &Vec<&str>) -> Vec<String> {
     vec_of_str.clone().iter().map(|s| s.to_string()).collect::<Vec<String>>()
 }
@@ -40,16 +48,20 @@ fn vec_to_string(vec_of_str: &Vec<&str>) -> Vec<String> {
 fn fsa_example() {
 
     //this fsa accepts only strings that end in b, i.e. [ab]*b.
-    let my_fsa1 = FiniteStateAutomata::init_from_file("exampleFSA1.txt".to_string());
+    let file_data_1 = FiniteStateAutomata::data_from_file("exampleFSA1.txt".to_string()).unwrap();
+    let my_fsa1 = FiniteStateAutomata::init(file_data_1).unwrap();
 
     //this fsa accepts only strings that don't end in b (including the empty string), i.e. [ab]*a|e.
-    let my_fsa2 = FiniteStateAutomata::init_from_file("exampleFSA2.txt".to_string());
+    let file_data_2 = FiniteStateAutomata::data_from_file("exampleFSA2.txt".to_string()).unwrap();
+    let my_fsa2 = FiniteStateAutomata::init(file_data_2).unwrap();
 
     //this pfsa produces only strings that end in b, i.e. [ab]*b.
-    let my_pfsa1 = ProbabilisticFiniteStateAutomata::init_from_file("examplepFSA1.txt".to_string());
+    let file_data_3 = ProbabilisticFiniteStateAutomata::data_from_file("examplepFSA1.txt".to_string()).unwrap();
+    let my_pfsa1 = ProbabilisticFiniteStateAutomata::init(file_data_3).unwrap();
 
     //this pfsa  only strings that don't end in b (including the empty string), i.e. [ab]*a|e.
-    let my_pfsa2 = ProbabilisticFiniteStateAutomata::init_from_file("examplepFSA2.txt".to_string());
+    let file_data_4 = ProbabilisticFiniteStateAutomata::data_from_file("examplepFSA2.txt".to_string()).unwrap();
+    let my_pfsa2 = ProbabilisticFiniteStateAutomata::init(file_data_4).unwrap();
 
     let mut alphabet = HashSet::new();
     alphabet.insert("a".to_string());
@@ -62,17 +74,17 @@ fn fsa_example() {
      ((2,"a".to_string()), 1),
      ((2,"b".to_string()), 2),]
      .iter().cloned().collect();
-    let mut my_fsa1_manual = FiniteStateAutomata::init(2,alphabet,trans,1,final_states);
+    let my_fsa1_manual = FiniteStateAutomata::init((2,alphabet,trans,1,final_states)).unwrap();
 
     println!("\nOutput from FSA 1\n");
 
     for _i in 0..20 {
         let generated_sequence = my_pfsa1.generate();
         let sequence_string = generated_sequence.iter().map(|s| s.to_string()).collect::<Vec<String>>().join("");
-        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,my_pfsa1.prob_of_word(&generated_sequence));
-        assert!(my_fsa1.accepts_sequence(&generated_sequence));
-        assert!(my_fsa1_manual.accepts_sequence(&generated_sequence));
-        assert!(!my_fsa2.accepts_sequence(&generated_sequence));
+        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,my_pfsa1.prob_of_word(&generated_sequence).unwrap());
+        assert!(my_fsa1.accepts_sequence(&generated_sequence).unwrap());
+        assert!(my_fsa1_manual.accepts_sequence(&generated_sequence).unwrap());
+        assert!(!my_fsa2.accepts_sequence(&generated_sequence).unwrap());
     }
 
     println!("\nOutput from FSA 2\n");
@@ -80,17 +92,20 @@ fn fsa_example() {
     for _i in 0..20 {
         let generated_sequence = my_pfsa2.generate();
         let sequence_string = generated_sequence.iter().map(|s| s.to_string()).collect::<Vec<String>>().join("");
-        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,my_pfsa2.prob_of_word(&generated_sequence));
-        assert!(!my_fsa1.accepts_sequence(&generated_sequence));
-        assert!(!my_fsa1_manual.accepts_sequence(&generated_sequence));
-        assert!(my_fsa2.accepts_sequence(&generated_sequence));
+        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,my_pfsa2.prob_of_word(&generated_sequence).unwrap());
+        assert!(!my_fsa1.accepts_sequence(&generated_sequence).unwrap());
+        assert!(!my_fsa1_manual.accepts_sequence(&generated_sequence).unwrap());
+        assert!(my_fsa2.accepts_sequence(&generated_sequence).unwrap());
     }
 
 }
 
 fn cfg_example() {
-    let my_cfg1 = ContextFreeGrammar::init_from_file("exampleCFG1.txt".to_string());
-    let my_cfg2 = ContextFreeGrammar::init_from_file("exampleCFG2.txt".to_string());
+
+    let file_data_1 = ContextFreeGrammar::data_from_file("exampleCFG1.txt".to_string()).unwrap();
+    let my_cfg1 = ContextFreeGrammar::init(file_data_1).unwrap();
+    let file_data_2 = ContextFreeGrammar::data_from_file("exampleCFG2.txt".to_string()).unwrap();
+    let my_cfg2 = ContextFreeGrammar::init(file_data_2).unwrap();
 
     println!("\nOutput from CFG 1\n");
 
@@ -113,38 +128,46 @@ fn ngram_example() {
     let number_3gram = NGramModel::init(&my_corpus,3);
     let corpus3_2gram = NGramModel::init(&ngrams::open_as_words("exampleCorpus3.txt".to_string()),2);
     let corpus1_2gram = NGramModel::init(&ngrams::open_as_lines("exampleCorpus1.txt".to_string()),2);
-    //println!("{:?}", ngrams::open_as_lines("exampleCorpus1.txt".to_string()));
     //println!("{:?}", ngrams::open_as_sentences("exampleCorpus2.txt".to_string()));
-    //println!("{:?}", ngrams::open_as_words("exampleCorpus3.txt".to_string()));
 
     println!("\nOutput from number ngram 1\n");
 
     for _i in 0..10 {
-        println!("Generated: {}", number_1gram.generate().iter().map(|s| s.to_string()).collect::<String>());
+        let generated_sequence = number_1gram.generate();
+        let sequence_string = generated_sequence.iter().map(|s| s.to_string()).collect::<String>();
+        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,number_1gram.probability(generated_sequence.clone(),0.0,0));
     }
 
     println!("\nOutput from number ngram 2\n");
 
     for _i in 0..10 {
-        println!("Generated: {}", number_2gram.generate().iter().map(|s| s.to_string()).collect::<String>());
+        let generated_sequence = number_2gram.generate();
+        let sequence_string = generated_sequence.iter().map(|s| s.to_string()).collect::<String>();
+        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,number_2gram.probability(generated_sequence.clone(),0.0,0));
     }
 
     println!("\nOutput from number ngram 3\n");
 
     for _i in 0..5 {
-        println!("Generated: {}", number_3gram.generate().iter().map(|s| s.to_string()).collect::<String>());
+        let generated_sequence = number_3gram.generate();
+        let sequence_string = generated_sequence.iter().map(|s| s.to_string()).collect::<String>();
+        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,number_3gram.probability(generated_sequence.clone(),0.0,0));
     }
 
     println!("\nOutput from Corpus 3 ngram\n");
 
-    for _i in 0..5 {
-        println!("Generated: {}", corpus3_2gram.generate().iter().map(|s| s.to_string()).collect::<String>());
+    for _i in 0..10 {
+        let generated_sequence = corpus3_2gram.generate();
+        let sequence_string = generated_sequence.iter().map(|s| s.to_string()).collect::<String>();
+        println!("Generated Sequence {:15} with probability {1:.15}",sequence_string,corpus3_2gram.probability(generated_sequence.clone(),0.0,0));
     }
 
     println!("\nOutput from Corpus 1 ngram\n");
 
-    for _i in 0..5 {
-        println!("Generated: {}", corpus1_2gram.generate().join(" "));
+    for _i in 0..10 {
+        let generated_sequence = corpus1_2gram.generate();
+        let sequence_string = generated_sequence.join(" ");
+        println!("Generated Sequence {:25} with probability {1:.15}",sequence_string,corpus1_2gram.probability(generated_sequence.clone(),0.0,0));
     }
 
 }
@@ -188,7 +211,7 @@ fn hmm_example() {
      (("C".to_string(),"c".to_string()), 0.34),]
      .iter().cloned().collect();
 
-    let my_hmm1 = HiddenMarkovModel::init(state_space,observation_space,initial_probabilities,transition_matrix,emission_matrix);
+    let my_hmm1 = HiddenMarkovModel::init(state_space,observation_space,initial_probabilities,transition_matrix,emission_matrix).unwrap();
 
     //let manuel_state_sequence: Vec<String> = ["A".to_string(),"B".to_string()].iter().cloned().collect();
     //println!("{}",my_hmm1.prob_of_state_sequence(man_state_sequence));
