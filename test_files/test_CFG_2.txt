@@ -1,0 +1,4 @@
+Term
+a b
+Term
+insufficent

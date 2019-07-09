@@ -1,0 +1,4 @@
+Term
+a b
+Term
+Term not_a_probability a b
